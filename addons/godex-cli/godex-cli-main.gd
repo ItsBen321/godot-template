@@ -47,7 +47,8 @@ var editor_settings: Dictionary = {
 }
 var project_settings: Dictionary = {
 	prefix + "session_id": "",
-	prefix + "use_git": false
+	prefix + "use_git": false,
+	prefix + "reasoning_effort": "medium"
 }
 
 
@@ -59,7 +60,7 @@ func _enter_tree() -> void:
 	_display_ascii()
 	_setup_settings()
 	EditorInterface.get_editor_settings().settings_changed.connect(_setup_settings)
-	
+
 
 func _setup_settings():
 	var ES := EditorInterface.get_editor_settings()
@@ -67,30 +68,34 @@ func _setup_settings():
 	for setting: String in editor_settings.keys():
 		if not ES.has_setting(setting):
 			ES.set_setting(setting, editor_settings[setting])
-		else: editor_settings[setting] = ES.get_setting(setting)
 	for setting: String in project_settings.keys():
 		if not PS.has_setting(setting):
 			PS.set_setting(setting,project_settings[setting])
-		else: project_settings[setting] = PS.get_setting(setting)
 	ES.add_property_info({
 		"name": prefix + "context_dir",
 		"type": TYPE_STRING,
 		"hint": PROPERTY_HINT_DIR,
 		"hint_string": "Select folder with context files."
 	})
+	PS.add_property_info({
+		"name": prefix + "reasoning_effort",
+		"type": TYPE_STRING,
+		"hint": PROPERTY_HINT_ENUM,
+		"hint_string": "low,medium,high,xhigh"
+	})
 	context = ("Before executing the prompt, read the file(s) at location %s for instructions. The prompt: " %
 		ProjectSettings.globalize_path(editor_settings[prefix + "context_dir"]))
-		
+
 
 func _display_ascii():
 	display_main("""[color=%s][b]
    ██████╗  ██████╗ ██████╗ ███████╗██╗  ██╗
   ██╔════╝ ██╔═══██╗██╔══██╗██╔════╝╚██╗██╔╝
-  ██║  ███╗██║   ██║██║  ██║█████╗   ╚███╔╝ 
-  ██║   ██║██║   ██║██║  ██║██╔══╝   ██╔██╗ 
+  ██║  ███╗██║   ██║██║  ██║█████╗   ╚███╔╝
+  ██║   ██║██║   ██║██║  ██║██╔══╝   ██╔██╗
   ╚██████╔╝╚██████╔╝██████╔╝███████╗██╔╝ ██╗
    ╚═════╝  ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝[/b][/color]""" % color_code)
-   
+
 
 func _process(delta: float) -> void:
 	# processing insert/fix/ask command in script
@@ -122,8 +127,7 @@ func _process(delta: float) -> void:
 		return
 	_check_output_pipe()
 	_check_error_pipe()
-	
-	
+
 
 func _find_fix_lines() -> Array[int]:
 	var lines: Array[int] = []
@@ -143,23 +147,36 @@ func _find_fix_lines() -> Array[int]:
 	return lines
 
 
-func _check_output_pipe():
-	if codex_process.is_empty() or not OS.is_process_running(codex_pid): return
-	if output_pipe == null: return
+func _check_output_pipe() -> void:
+	if codex_process.is_empty():
+		return
+	if output_pipe == null:
+		return
+
 	var new_text: String = output_pipe.get_as_text()
-	if new_text.is_empty(): return
-	output_buffer += new_text
-	var output_text: String = ""
+	if not new_text.is_empty():
+		output_buffer += new_text
+	if output_buffer.is_empty():
+		return
+
 	while true:
-		var newline_position := output_buffer.find("\n")
+		var newline_position: int = output_buffer.find("\n")
 		if newline_position == -1:
 			break
-		var line := output_buffer.substr(0, newline_position).strip_edges()
+		var line: String = output_buffer.substr(0, newline_position).strip_edges()
 		output_buffer = output_buffer.substr(newline_position + 1)
 		if not line.is_empty():
 			_process_output(line)
-	
-	
+
+	var tail: String = output_buffer.strip_edges()
+	if tail.is_empty():
+		return
+	var parsed_tail: Variant = JSON.parse_string(tail)
+	if typeof(parsed_tail) == TYPE_DICTIONARY:
+		output_buffer = ""
+		_process_output(tail)
+
+
 func _process_output(new_text: String):
 	var json := JSON.parse_string(new_text)
 	if not typeof(json) == TYPE_DICTIONARY: return
@@ -199,24 +216,40 @@ func _process_output(new_text: String):
 							_fix_output(str(item.get("text", "")))
 						ASK:
 							_ask_output(str(item.get("text", "")))
-							
-					
+
+
 func _insert_output(text: String):
-	var json := JSON.parse_string(text)
-	if not typeof(json) == TYPE_DICTIONARY:
-		display_main("[color=%s]► [/color]%s" % [color_code, str(json)])
-		return	
+	var parser := JSON.new()
+	var parse_error: int = parser.parse(text)
+	if parse_error != OK:
+		display_main("[color=%s]► [/color]%s" % [color_code, text])
+		return
+
+	var parsed_data = parser.data
+	if not parsed_data is Dictionary:
+		display_main("[color=%s]► [/color]%s" % [color_code, str(parsed_data)])
+		return
+
+	var json: Dictionary = parsed_data
 	var line: int = _find_line()
 	if line == -1: return
 	active_editor.set_line(line, json.get("CODE","No code found."))
 	display_main("[color=%s]► [/color]%s" % [color_code, json.get("DESCRIPTION","No description found.")])
-	
-	
+
+
 func _fix_output(text: String):
-	var json := JSON.parse_string(text)
-	if not typeof(json) == TYPE_DICTIONARY:
-		display_main("[color=%s]► [/color]%s" % [color_code, str(json)])
-		return	
+	var parser := JSON.new()
+	var parse_error: int = parser.parse(text)
+	if parse_error != OK:
+		display_main("[color=%s]► [/color]%s" % [color_code, text])
+		return
+
+	var parsed_data = parser.data
+	if not parsed_data is Dictionary:
+		display_main("[color=%s]► [/color]%s" % [color_code, str(parsed_data)])
+		return
+
+	var json: Dictionary = parsed_data
 	var line: int = _find_line()
 	if line == -1: return
 	active_editor.remove_line_at(line)
@@ -226,34 +259,42 @@ func _fix_output(text: String):
 	var new_script: String = json.get("CODE","No code found.")
 	_popup_fix_window(json.get("DESCRIPTION","No description found."), old_script, new_script)
 	display_main("[color=%s]► [/color]%s" % [color_code, json.get("DESCRIPTION","No description found.")])
-	
+
 
 func _ask_output(text: String):
-	var json := JSON.parse_string(text)
-	if not typeof(json) == TYPE_DICTIONARY:
-		display_main("[color=%s]► [/color]%s" % [color_code, str(json)])
-		return	
+	var parser := JSON.new()
+	var parse_error: int = parser.parse(text)
+	if parse_error != OK:
+		display_main("[color=%s]► [/color]%s" % [color_code, text])
+		return
+
+	var parsed_data = parser.data
+	if not parsed_data is Dictionary:
+		display_main("[color=%s]► [/color]%s" % [color_code, str(parsed_data)])
+		return
+
+	var json: Dictionary = parsed_data
 	var new_script: String = json.get("CODE","No code found.")
 	if not new_script.is_empty():
 		_popup_ask_window(json.get("DESCRIPTION","No description found."), new_script)
 	display_main("[color=%s]► [/color]%s" % [color_code, json.get("DESCRIPTION","No description found.")])
-	
-	
+
+
 func _get_old_script(lines: Array[int]) -> String:
-	var line_string_array: PackedStringArray = []		
+	var line_string_array: PackedStringArray = []
 	var script_string: String
 	for l in lines:
 		line_string_array.append(active_editor.get_line(l))
 	script_string = "\n".join(line_string_array)
 	return script_string
-	
-	
+
+
 func _popup_fix_window(explainer: String, old_script: String, new_script: String):
 	fix_window = FIX_WINDOW.instantiate()
 	add_child(fix_window)
 	fix_window.setup_fix(explainer, old_script, new_script)
 	fix_window.confirm.connect(_fix_confirm)
-	
+
 
 func _popup_ask_window(explainer: String, new_script: String):
 	fix_window = FIX_WINDOW.instantiate()
@@ -314,8 +355,8 @@ func loading_animation(frame: int = 0) -> void:
 
 func display_input(text: String):
 	print_rich("\n[b]➤ %s[/b]\n\n" % text)
-	
-	
+
+
 func display_main(text: String):
 	print_rich("\n %s\n\n" % text)
 
@@ -323,7 +364,7 @@ func display_main(text: String):
 func display_process(text: String):
 	print_rich("[code][i]%s[/i][/code]\n\n" % text)
 
-	
+
 func send_insert(text: String):
 	var text_input: String = text.lstrip("#/").rstrip("/#").strip_edges()
 	display_input(text_input)
@@ -336,10 +377,10 @@ func send_insert(text: String):
 			"LINE": EditorInterface.get_script_editor().get_current_editor().get_base_editor().get_caret_line()
 		}
 	}
-	var prompt_string = context + JSON.stringify(prompt_json)
+	var prompt_string = JSON.stringify(prompt_json)
 	start_session(prompt_string, INSERT)
-	
-	
+
+
 func send_fix(lines: Array[int]):
 	if lines.is_empty(): return
 	var script_editor: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
@@ -357,10 +398,10 @@ func send_fix(lines: Array[int]):
 			"LINE": lines
 		}
 	}
-	var prompt_string = context + JSON.stringify(prompt_json)
+	var prompt_string = JSON.stringify(prompt_json)
 	start_session(prompt_string, FIX)
-	
-	
+
+
 func send_ask(current_line: int, current_string: String):
 	var text_input: String = current_string.lstrip("#(").rstrip(")#").strip_edges()
 	display_input(text_input)
@@ -373,30 +414,32 @@ func send_ask(current_line: int, current_string: String):
 			"LINE": EditorInterface.get_script_editor().get_current_editor().get_base_editor().get_caret_line()
 		}
 	}
-	var prompt_string = context + JSON.stringify(prompt_json)
+	var prompt_string = JSON.stringify(prompt_json)
 	start_session(prompt_string, ASK)
 
-	
+
 func start_session(prompt: String, mode: String):
 	if processing:
 		push_error("Still processing request.")
 		return
-	# setup codex aruments and prompt
 	var process_json: PackedStringArray = [
 		"/c",
 		"codex",
 		"--cd", ProjectSettings.globalize_path("res://"),
-		"--sandbox",
-		"read-only",
+		"-c model_reasoning_effort=%s" % ProjectSettings.get_setting(prefix + "reasoning_effort", "medium"),
+		#"--sandbox",
+		#"read-only",
 		"exec",
 	]
-	if not project_settings[prefix + "use_git"]:
+	if not ProjectSettings.get_setting(prefix + "use_git", false):
 		process_json.append("--skip-git-repo-check")
-	if not project_settings[prefix + "session_id"].is_empty():
+	if not ProjectSettings.get_setting(prefix + "session_id", "").is_empty():
 		process_json.append_array([
-			"resume", project_settings[prefix + "session_id"]])
+			"resume", ProjectSettings.get_setting(prefix + "session_id", "")])
+	else: prompt = context + prompt
 	var escaped_prompt: String = prompt.replace("\"", "\\\"")
-	process_json.append_array(["--json", escaped_prompt]) 
+	escaped_prompt = escaped_prompt.replace("\'","\\\'")
+	process_json.append_array(["--json", escaped_prompt])
 	# setup for the process
 	prompt_timer = Time.get_ticks_msec()
 	processing = true

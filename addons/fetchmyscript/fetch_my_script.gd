@@ -8,6 +8,11 @@ var git_user: String
 var git_repo: String
 var popup: Window
 var fetched_dir: String
+var editor_settings := EditorInterface.get_editor_settings()
+const settings: Dictionary = {
+	"FetchMyScripts/github_username": "ItsBen321",
+	"FetchMyScripts/github_repo": "godot-custom-classes"
+}
 
 func _enter_tree() -> void:
 	fetch_button = Button.new()
@@ -15,23 +20,23 @@ func _enter_tree() -> void:
 	add_control_to_container(EditorPlugin.CONTAINER_TOOLBAR, fetch_button)
 	fetch_button.get_parent().move_child(fetch_button,-2)
 	fetch_button.pressed.connect(_fetch_pressed)
+	_setup_settings()
+
+
+func _setup_settings():
+	for s in settings.keys():
+		if not editor_settings.has_setting(s):
+			editor_settings.set_setting(s, settings.get(s, ""))
+
 
 func _exit_tree() -> void:
 	remove_control_from_container(EditorPlugin.CONTAINER_TOOLBAR,fetch_button)
 	fetch_button.queue_free()
-	
+
+
 func _fetch_pressed():
-	var cfg: ConfigFile = ConfigFile.new()
-	var script_path: String = get_script().resource_path
-	var cfg_path: String = script_path.get_base_dir().path_join("setup.cfg")
-	var err: int = cfg.load(cfg_path)
-	if err == OK:
-		git_user = str(cfg.get_value("MAIN", "github_username", ""))
-		git_repo = str(cfg.get_value("MAIN", "github_repo", ""))
-	else:
-		push_warning("Failed to load config: %s" % cfg_path)
-		return
-	
+	git_user = editor_settings.get_setting("FetchMyScripts/github_username")
+	git_repo = editor_settings.get_setting("FetchMyScripts/github_repo")
 	var req := HTTPRequest.new()
 	add_child(req)
 	req.request_completed.connect(_fetch_init_complete)
@@ -81,7 +86,7 @@ func readme(raw: String):
 	req.request(raw)
 	await req.request_completed
 	req.queue_free()
-	
+
 func _fetch_readme(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
 	print_rich(body.get_string_from_utf8())
 
@@ -104,6 +109,9 @@ func _fetch_final(result: int, response_code: int, headers: PackedStringArray, b
 	for file in files.keys():
 		var file_path: String = dir_path.path_join(file)
 		save_file(file_path,files[file])
+	await get_tree().create_timer(1.0).timeout
+	var file_system := EditorInterface.get_resource_filesystem()
+	if not file_system.is_scanning(): file_system.scan()
 
 func save_file(file_path: String, download_url: String):
 	var req := HTTPRequest.new()
@@ -112,7 +120,7 @@ func save_file(file_path: String, download_url: String):
 	req.request(download_url)
 	await req.request_completed
 	req.queue_free()
-	
+
 func _write_request(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray, file_path: String):
 	var file_text: String = body.get_string_from_utf8()
 	var file: FileAccess = FileAccess.open(file_path, FileAccess.WRITE)

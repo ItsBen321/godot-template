@@ -12,6 +12,7 @@ config_version=5
 
 session_id=""
 use_git=false
+reasoning_effort="medium"
 
 [application]
 
@@ -43,7 +44,7 @@ window/size/mode=2
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/Todo_Manager/plugin.cfg", "res://addons/fetchmyscript/plugin.cfg", "res://addons/godex-cli/plugin.cfg", "res://addons/godot_vim/plugin.cfg")
+enabled=PackedStringArray("res://addons/Todo_Manager/plugin.cfg", "res://addons/fetchmyscript/plugin.cfg", "res://addons/godex-cli/plugin.cfg", "res://addons/godot-neovim/plugin.cfg")
 
 [physics]
 
