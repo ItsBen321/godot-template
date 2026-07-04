@@ -8,20 +8,17 @@
 
 config_version=5
 
-[GodexCLI]
-
-session_id=""
-use_git=false
-reasoning_effort="medium"
-
 [application]
 
 config/name="godot-template-project"
 config/use_custom_user_dir=true
-config/features=PackedStringArray("4.6", "GL Compatibility")
+config/features=PackedStringArray("4.7", "GL Compatibility")
+boot_splash/show_image=false
 
 [debug]
 
+file_logging/enable_file_logging=true
+file_logging/max_log_files=3
 gdscript/warnings/unassigned_variable=0
 gdscript/warnings/unassigned_variable_op_assign=0
 gdscript/warnings/unused_variable=0
@@ -35,16 +32,19 @@ gdscript/warnings/int_as_enum_without_cast=0
 gdscript/warnings/int_as_enum_without_match=0
 gdscript/warnings/enum_variable_without_default=0
 gdscript/warnings/empty_file=0
+gdscript/warnings/inference_on_variant=1
 
 [display]
 
 window/size/viewport_width=1920
 window/size/viewport_height=1080
 window/size/mode=2
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep_height"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/Todo_Manager/plugin.cfg", "res://addons/fetchmyscript/plugin.cfg", "res://addons/godex-cli/plugin.cfg", "res://addons/godot-neovim/plugin.cfg")
+enabled=PackedStringArray()
 
 [physics]
 
@@ -53,5 +53,3 @@ enabled=PackedStringArray("res://addons/Todo_Manager/plugin.cfg", "res://addons/
 [rendering]
 
 rendering_device/driver.windows="d3d12"
-renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"
